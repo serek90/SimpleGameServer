@@ -152,7 +152,6 @@ void *lotteryThreadFunc(void *arg)
 
 /*****************************
 * main thread
-* Accepted incoming connections
 *****************************/
 int main()
 {
