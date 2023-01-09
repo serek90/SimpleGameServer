@@ -229,9 +229,12 @@ int main()
 
         }
 
-
         /* main loop */
         while(1){}
+
+        /* join network threads */
+        for(int i = 0; i < NTHREADS; i++)
+                pthread_join(netThread[i], NULL);
 
         /*7. close and free allocated memory */
         freeaddrinfo(server_addr);
