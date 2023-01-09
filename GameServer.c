@@ -46,7 +46,11 @@ void *netThreadFunc(void *arg)
         struct sockaddr client_addr;
         socklen_t client_len = sizeof(client_addr);
         int client_fd;
-
+        struct BEGASEP_header *mess_header = calloc(1, sizeof(struct BEGASEP_header));
+        struct BEGASEP_accept *mess_accept = calloc(1, sizeof(struct BEGASEP_accept));
+        struct BEGASEP_betting *mess_bet = calloc(1, sizeof(struct BEGASEP_betting));
+        struct BEGASEP_result *mess_result = calloc(1, sizeof(struct BEGASEP_result));
+        
         while(1)
         {
 
@@ -63,7 +67,6 @@ void *netThreadFunc(void *arg)
                 netThreadCtr++;
 
                 /* (1) Receive message BEGASEP_OPEN from client */
-                struct BEGASEP_header *mess_header = calloc(1, sizeof(struct BEGASEP_header));
                 int ret = recv(client_fd, mess_header, sizeof(struct BEGASEP_header), 0);
                 if(ret > 0)
                 {
@@ -75,7 +78,6 @@ void *netThreadFunc(void *arg)
                 }
 
                 /* (2) Send message BEGASEP_ACCEPT */
-                struct BEGASEP_accept *mess_accept = calloc(1, sizeof(struct BEGASEP_accept));
                 mess_accept->header.Ver = PROGRAM_VER;
                 mess_accept->header.Len = sizeof(struct BEGASEP_accept);
                 mess_accept->header.Type = BEGASEP_ACCEPT;
@@ -90,7 +92,6 @@ void *netThreadFunc(void *arg)
                 }
 
                 /* (3) Receive message BEGASEP_BET */
-                struct BEGASEP_betting *mess_bet = calloc(1, sizeof(struct BEGASEP_betting));
                 ret = recv(client_fd, mess_bet, sizeof(struct BEGASEP_betting), 0);
                 if(ret > 0)
                 {
@@ -106,7 +107,6 @@ void *netThreadFunc(void *arg)
                 while(endLottery){}
 
                 /* (4) Send message BEGASEP_RESULT */
-                struct BEGASEP_result *mess_result = calloc(1, sizeof(struct BEGASEP_result));
                 mess_result->header.Ver = PROGRAM_VER;
                 mess_result->header.Len = sizeof(struct BEGASEP_result);
                 mess_result->header.Type = BEGASEP_RESULT;
@@ -120,11 +120,15 @@ void *netThreadFunc(void *arg)
                         exit(1);
                 }
 
-
                 printf("DEBUG: Thread finish connection\n");
                 /* Close client socket */
                 close(client_fd);
         }
+        
+        free(mess_header);
+        free(mess_accept);
+        free(mess_bet);
+        free(mess_result);
 }
 
 /******************************
