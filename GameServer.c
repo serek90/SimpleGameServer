@@ -17,10 +17,12 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include "betGameProtocol.h"
 
-#define MAX_NUM 5
-#define MIN_NUM 1
+#define MAX_NUM 25
+#define MIN_NUM 15
 #define NTHREADS 40
+#define PROGRAM_VER 1
 
 struct client
 {
@@ -29,6 +31,8 @@ struct client
 };
 
 atomic_int endLottery;
+uint32_t winning_num;
+
 /*******************************
 *net thread function
 *******************************/
@@ -38,31 +42,95 @@ struct client client[NTHREADS];
 
 void *netThreadFunc(void *arg)
 {
-        struct client *client = (struct client*)arg;
+        struct client *server = (struct client*)arg;
+        struct sockaddr client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        int client_fd;
 
-        //6. send() recv()
-        const int buffer_size = 1024;
-        char buffer[buffer_size];
-        int ret = recv(client->fd, buffer, buffer_size, 0);
-        if(ret > 0)
+        while(1)
         {
-                printf("Received %d bythes from client % d\n", ret, client->id);
-                for(int i = 0; i < ret; i++)
-                        putchar(buffer[i]);
+
+                /* Accept incoming connection */
+                printf("Accepting a new connection\n");
+
+                client_fd = accept(server->fd, &client_addr, &client_len);
+                if(client_fd == -1)
+                {
+                        perror("Failed with accepted\n");
+                        exit(1);
+                }
+                printf("Connection accepted\n");
+                netThreadCtr++;
+
+                /* (1) Receive message BEGASEP_OPEN from client */
+                struct BEGASEP_header *mess_header = calloc(1, sizeof(struct BEGASEP_header));
+                int ret = recv(client_fd, mess_header, sizeof(struct BEGASEP_header), 0);
+                if(ret > 0)
+                {
+                        printf("Received %d bythes from client % d\n", ret, server->id);
+                        printf("ver: %d, len: %d, type: %d, client_id: %d\n", mess_header->Ver,
+                                                                          mess_header->Len,
+                                                                          mess_header->Type,
+                                                                          mess_header->Client_id);
+                }
+
+                /* (2) Send message BEGASEP_ACCEPT */
+                struct BEGASEP_accept *mess_accept = calloc(1, sizeof(struct BEGASEP_accept));
+                mess_accept->header.Ver = PROGRAM_VER;
+                mess_accept->header.Len = sizeof(struct BEGASEP_accept);
+                mess_accept->header.Type = BEGASEP_ACCEPT;
+                mess_accept->header.Client_id = server->id;
+                mess_accept->lowNumRange = MIN_NUM;
+                mess_accept->upNumRange = MAX_NUM;
+                ret = send(client_fd, mess_accept, sizeof(struct BEGASEP_accept), 0);
+                if(ret < 1)
+                {
+                        perror("Send failed\n");
+                        exit(1);
+                }
+
+                /* (3) Receive message BEGASEP_BET */
+                struct BEGASEP_betting *mess_bet = calloc(1, sizeof(struct BEGASEP_betting));
+                ret = recv(client_fd, mess_bet, sizeof(struct BEGASEP_betting), 0);
+                if(ret > 0)
+                {
+                        printf("Received %d bythes from client % d\n", ret, server->id);
+                        printf("ver: %d, len: %d, type: %d, client_id: %d\n", mess_bet->header.Ver,
+                                                                          mess_bet->header.Len,
+                                                                          mess_bet->header.Type,
+                                                                          mess_bet->header.Client_id);
+                        printf("Betting: %d\n", mess_bet->bettingNum);
+                }
+
+                /* wait for lottery to finish */
+                while(endLottery){}
+
+                /* (4) Send message BEGASEP_RESULT */
+                struct BEGASEP_result *mess_result = calloc(1, sizeof(struct BEGASEP_result));
+                mess_result->header.Ver = PROGRAM_VER;
+                mess_result->header.Len = sizeof(struct BEGASEP_result);
+                mess_result->header.Type = BEGASEP_RESULT;
+                mess_result->header.Client_id = server->id;
+                mess_result->winNum = winning_num;
+                mess_result->status = (winning_num == mess_bet->bettingNum);
+                ret = send(client_fd, mess_result, sizeof(struct BEGASEP_result), 0);
+                if(ret < 1)
+                {
+                        perror("Send failed\n");
+                        exit(1);
+                }
+
+
+                printf("DEBUG: Thread finish connection\n");
+                /* Close client socket */
+                close(client_fd);
         }
-
-
-        while(endLottery){}
-
-        printf("Hey I finished my work\n");
-        /* Close client socket */
-        close(client->fd);
 }
+
 /******************************
-*Rounding thread
+*Lottery thread
 ******************************/
 pthread_t lotteryThread;
-int winning_num;
 
 void *lotteryThreadFunc(void *arg)
 {
@@ -93,7 +161,7 @@ int main()
         const char *host = "127.0.0.1";
         const char *port = "2222";
 
-        // 1. getddrinfo()
+        /* 1. getddrinfo() */
         struct addrinfo *addr_init = calloc(1, sizeof(struct addrinfo));
         addr_init->ai_family = AF_INET6; // IPv6
         addr_init->ai_socktype = SOCK_STREAM; //TCP
@@ -111,7 +179,7 @@ int main()
         addr_init = NULL;
 
 
-        //2. socket()
+        /* 2. Open socket */
         printf("Assinging socket\n");
         int sockfd = socket(server_addr->ai_family, server_addr->ai_socktype, server_addr->ai_protocol);
         if(sockfd == -1)
@@ -128,7 +196,7 @@ int main()
                 perror("Failed to activate doual stack config\n");
                 exit(1);
         }
-        //3. bind()
+        /* 3. Bind socket */
         printf("Binding socket ...\n");
         if(bind(sockfd, server_addr->ai_addr, server_addr->ai_addrlen) == -1)
         {
@@ -140,8 +208,7 @@ int main()
         /* Start lottery thread */
         pthread_create(&lotteryThread, NULL, lotteryThreadFunc, NULL);
 
-        //4. listen()
-        /* Listen for incoming connections */
+        /* 4. Listen for incoming connections */
         printf("Listening...\n");
         if(listen(sockfd,1) == -1)
         {
@@ -149,36 +216,26 @@ int main()
                 exit(1);
         }
 
-        //5. accept()
-        struct sockaddr client_addr;
-        socklen_t client_len = sizeof(client_addr);
 
-        /* main loop */
-        while(1)
+        /* Create network threads */
+        for(int i = 0; i < NTHREADS; i++)
         {
-                //5. accept()
-                printf("Accepting a new connection\n");
-
-                client[netThreadCtr].fd = accept(sockfd, &client_addr, &client_len);
-                if(client[netThreadCtr].fd == -1)
-                {
-                        perror("Failed with accepted\n");
+                client[i].id = i;
+                client[i].fd = sockfd;
+                int result = pthread_create(&netThread[i], NULL, netThreadFunc, (void *) &client[i]);
+                if (result != 0) {
+                        perror("Could not create thread!!!\n");
                         exit(1);
                 }
-                printf("Connection accepted\n");
-                client[netThreadCtr].id = netThreadCtr;
-                int result = pthread_create(&netThread[netThreadCtr], NULL, netThreadFunc, (void *) &client[netThreadCtr]);
-                if (result != 0) {
-                        perror("Could not create thread.");
-                }
-                netThreadCtr++;
 
         }
 
-        // 7. close()
-        /*free allocated memory */
+
+        /* main loop */
+        while(1){}
+
+        /*7. close and free allocated memory */
         freeaddrinfo(server_addr);
-        /* Clear resources */
         close(sockfd);
 
         return 0;
