@@ -17,10 +17,11 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <netinet/in.h>
 #include "betGameProtocol.h"
 
-#define MAX_NUM 25
-#define MIN_NUM 15
+#define MAX_NUM 21
+#define MIN_NUM 18
 #define NTHREADS 40
 #define PROGRAM_VER 1
 
@@ -32,6 +33,45 @@ struct client
 
 atomic_int endLottery;
 uint32_t winning_num;
+
+/******************************
+*send message over a socket
+*******************************/
+int send_message(int mess_size, uint32_t *in_buffer, int file_des)
+{
+        const int max_mess_size = 24;
+        uint32_t buffer[max_mess_size];
+
+        if(mess_size > max_mess_size)
+                return 0;
+
+        //convert to network order
+        for(int i = 0; i < (mess_size / 4); i++)
+                buffer[i] = htonl(in_buffer[i]);
+
+        return send(file_des, buffer, mess_size, 0);
+}
+
+
+/*****************************
+*read message from socket
+*****************************/
+int recv_message(int file_d, uint32_t *out_buff, int mess_size)
+{
+        const int max_mess_size = 24;
+        uint32_t buffer[max_mess_size];
+
+        if(mess_size > max_mess_size)
+                return 0;
+
+        int bythe_recv = recv(file_d, buffer, mess_size, 0);
+
+        //convert to host order
+        for(int i = 0; i < (mess_size / 4); i++)
+                out_buff[i] = ntohl(buffer[i]);
+
+        return bythe_recv;
+}
 
 /*******************************
 *net thread function
@@ -46,11 +86,13 @@ void *netThreadFunc(void *arg)
         struct sockaddr client_addr;
         socklen_t client_len = sizeof(client_addr);
         int client_fd;
+
         struct BEGASEP_header *mess_header = calloc(1, sizeof(struct BEGASEP_header));
         struct BEGASEP_accept *mess_accept = calloc(1, sizeof(struct BEGASEP_accept));
         struct BEGASEP_betting *mess_bet = calloc(1, sizeof(struct BEGASEP_betting));
         struct BEGASEP_result *mess_result = calloc(1, sizeof(struct BEGASEP_result));
-        
+        uint32_t send_buffer[10];
+
         while(1)
         {
 
@@ -63,7 +105,7 @@ void *netThreadFunc(void *arg)
                         perror("Failed with accepted\n");
                         exit(1);
                 }
-                printf("Connection accepted\n");
+                printf("Connection accepted from thread %d\n", server->id);
                 netThreadCtr++;
 
                 /* (1) Receive message BEGASEP_OPEN from client */
@@ -71,35 +113,27 @@ void *netThreadFunc(void *arg)
                 if(ret > 0)
                 {
                         printf("Received %d bythes from client % d\n", ret, server->id);
-                        printf("ver: %d, len: %d, type: %d, client_id: %d\n", mess_header->Ver,
-                                                                          mess_header->Len,
-                                                                          mess_header->Type,
-                                                                          mess_header->Client_id);
+                        print_header(mess_header);
                 }
 
-                /* (2) Send message BEGASEP_ACCEPT */
-                mess_accept->header.Ver = PROGRAM_VER;
-                mess_accept->header.Len = sizeof(struct BEGASEP_accept);
-                mess_accept->header.Type = BEGASEP_ACCEPT;
-                mess_accept->header.Client_id = server->id;
+                mess_header->Ver = PROGRAM_VER;
+                mess_header->Type = BEGASEP_ACCEPT;
+                mess_header->Client_id = server->id;
+                mess_header->Len = (sizeof(struct BEGASEP_accept) + sizeof(struct BEGASEP_header));
                 mess_accept->lowNumRange = MIN_NUM;
                 mess_accept->upNumRange = MAX_NUM;
-                ret = send(client_fd, mess_accept, sizeof(struct BEGASEP_accept), 0);
-                if(ret < 1)
-                {
-                        perror("Send failed\n");
-                        exit(1);
-                }
+                memcpy(&send_buffer[0], mess_header, sizeof(struct BEGASEP_header));
+                memcpy(&send_buffer[1], mess_accept, sizeof(struct BEGASEP_accept));
+
+                if(send_message(12, send_buffer, client_fd) < 1)
+                        printf("Problem with sending message!");
 
                 /* (3) Receive message BEGASEP_BET */
                 ret = recv(client_fd, mess_bet, sizeof(struct BEGASEP_betting), 0);
                 if(ret > 0)
                 {
                         printf("Received %d bythes from client % d\n", ret, server->id);
-                        printf("ver: %d, len: %d, type: %d, client_id: %d\n", mess_bet->header.Ver,
-                                                                          mess_bet->header.Len,
-                                                                          mess_bet->header.Type,
-                                                                          mess_bet->header.Client_id);
+                        print_header(&mess_bet->header);
                         printf("Betting: %d\n", mess_bet->bettingNum);
                 }
 
@@ -119,16 +153,21 @@ void *netThreadFunc(void *arg)
                         perror("Send failed\n");
                         exit(1);
                 }
+/*                mess_header->Type = BEGASEP_RESULT;
+                mess_header->Len = (sizeof(struct BEGASEP_accept) + sizeof(struct BEGASEP_result));
+                mess_result->winNum = winning_num;
+                mess_result->status = (winning_num == mess_bet->bettingNum);
+                memcpy(&send_buffer[0], mess_header, sizeof(struct BEGASEP_header));
+                memcpy(&send_buffer[1], mess_accept, sizeof(struct BEGASEP_result));
 
-                printf("DEBUG: Thread finish connection\n");
+                if(send_message(12, send_buffer, client_fd) < 1)
+                        printf("Problem with sending message!");*/
+
+
+                printf("DEBUG: Thread finish connection\n\n\n");
                 /* Close client socket */
                 close(client_fd);
         }
-        
-        free(mess_header);
-        free(mess_accept);
-        free(mess_bet);
-        free(mess_result);
 }
 
 /******************************
@@ -147,7 +186,7 @@ void *lotteryThreadFunc(void *arg)
                         endLottery = 1;
                         sleep(15);
                         winning_num  = rand()%MAX_NUM + MIN_NUM;
-                        printf("%d\n", winning_num);
+                        printf("Winning number is: %d\n", winning_num);
                         endLottery = 0;
                         netThreadCtr = 0;
                 }
@@ -156,6 +195,7 @@ void *lotteryThreadFunc(void *arg)
 
 /*****************************
 * main thread
+* Accepted incoming connections
 *****************************/
 int main()
 {
@@ -199,6 +239,7 @@ int main()
                 perror("Failed to activate doual stack config\n");
                 exit(1);
         }
+
         /* 3. Bind socket */
         printf("Binding socket ...\n");
         if(bind(sockfd, server_addr->ai_addr, server_addr->ai_addrlen) == -1)
@@ -232,6 +273,7 @@ int main()
                 }
 
         }
+
 
         /* main loop */
         while(1){}
