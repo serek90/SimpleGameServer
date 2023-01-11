@@ -70,14 +70,21 @@ int main()
         }
 
         struct BEGASEP_accept *mess_accept = calloc(1, sizeof(struct BEGASEP_accept));
-        ret = recv(sockfd, mess_accept, sizeof(struct BEGASEP_accept), 0);
+        uint32_t buff_recv[10];
+        uint32_t buff_in[10];
+        ret = recv(sockfd, buff_in, 12, 0);
         if(ret > 0)
         {
+                for(int i = 0; i < ret; i++)
+                        buff_recv[i] = ntohl(buff_in[i]);
+                memcpy(mess_header, &buff_recv[0], sizeof(struct BEGASEP_header));
+                memcpy(mess_accept, &buff_recv[1], sizeof(struct BEGASEP_accept));
+
                 printf("Received %d bythes \n", ret);
-                printf("ver: %d, len: %d, type: %d, client_id: %d\n", mess_accept->header.Ver,
-                                                                  mess_accept->header.Len,
-                                                                  mess_accept->header.Type,
-                                                                  mess_accept->header.Client_id);
+                printf("ver: %d, len: %d, type: %d, client_id: %d\n", mess_header->Ver,
+                                                                  mess_header->Len,
+                                                                  mess_header->Type,
+                                                                  mess_header->Client_id);
                 printf("Max num: %d, min num: %d\n", mess_accept->lowNumRange, mess_accept->upNumRange);
 
         }
@@ -87,7 +94,7 @@ int main()
         mess_bet->header.Ver = 1;
         mess_bet->header.Len = sizeof( struct BEGASEP_betting);
         mess_bet->header.Type = BEGASEP_BET;
-        mess_bet->header.Client_id = mess_accept->header.Client_id;
+        mess_bet->header.Client_id = mess_header->Client_id;
         mess_bet->bettingNum = 20; //JSJS hardcode
 
         ret = send(sockfd, mess_bet, sizeof(struct BEGASEP_betting), 0);
@@ -99,14 +106,17 @@ int main()
 
         /* (4) Send message BEGASEP_RESULT */
         struct BEGASEP_result *mess_result = calloc(1, sizeof(struct BEGASEP_result));
+
         ret = recv(sockfd, mess_result, sizeof(struct BEGASEP_result), 0);
         if(ret > 0)
         {
                 printf("Received %d bythes\n", ret);
-                printf("ver: %d, len: %d, type: %d, client_id: %d\n", mess_result->header.Ver,
-                                                                  mess_result->header.Len,
-                                                                  mess_result->header.Type,
-                                                                  mess_result->header.Client_id);
+//                for(int i = 0; i < ret; i++)
+ //                       buff_recv[i] = ntohl(buff_in[i]);
+//                memcpy(mess_header, &buff_recv[0], sizeof(struct BEGASEP_header));
+//                memcpy(mess_result, &buff_recv[1], sizeof(struct BEGASEP_result));
+
+                print_header(&(mess_result->header));
                 printf("The great number is: %d and you: %s!!!", mess_result->winNum, mess_result->status ? "won" : "lose");
 
         }
