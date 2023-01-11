@@ -17,7 +17,6 @@ struct BEGASEP_header
 
 struct BEGASEP_accept
 {
-        struct BEGASEP_header header;
         uint32_t lowNumRange;
         uint32_t upNumRange;
 };
@@ -35,5 +34,12 @@ struct BEGASEP_result
         uint32_t winNum;
 } __attribute__((packed));
 
+void print_header(struct BEGASEP_header *h)
+{
+        printf("ver: %d, len: %d, type: %d, client_id: %d\n", h->Ver,
+                                                              h->Len,
+                                                              h->Type,
+                                                              h->Client_id);
+}
 
 #endif /* !define  BETGAMEPROTOCOL_H */
